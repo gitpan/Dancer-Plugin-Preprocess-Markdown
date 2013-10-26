@@ -5,7 +5,7 @@ use warnings;
 
 # ABSTRACT: Generate HTML content from Markdown files
 
-our $VERSION = '0.010'; # VERSION
+our $VERSION = '0.020'; # VERSION
 
 use Cwd 'abs_path';
 use Dancer ':syntax';
@@ -14,9 +14,10 @@ use File::Spec::Functions qw(catfile file_name_is_absolute);
 use Text::Markdown qw(markdown);
 
 my $settings = {
-    save => 0,
+    layout => setting('layout'),
     # TODO: It might make more sense to have 1 as the default
     recursive => 0,
+    save => 0,
     %{plugin_setting()}
 };
 my $paths;
@@ -25,11 +26,11 @@ if (exists $settings->{paths}) {
     $paths = $settings->{paths};
 }
 
-my $paths_re = join '|', map { s{^/|/$}{}; quotemeta } keys %$paths;
-
-if ($paths_re ne '') {
-    $paths_re = quotemeta('/') . $paths_re;
-}
+my $paths_re = join '|', map {
+    s{^[^/]}{/$0};      # Add leading slash, if missing
+    s{/$}{};            # Remove trailing slash
+    quotemeta;
+} reverse sort keys %$paths;
 
 sub _process_markdown_file {
     my $md_file = shift;
@@ -58,18 +59,22 @@ hook on_reset_state => sub {
         $path .= '/';
         my $path_settings;
 
-        for my $path_prefix (keys %$paths) {
+        for my $path_prefix (reverse sort keys %$paths) {
             (my $path_prefix_slash = $path_prefix) =~ s{([^/])$}{$1/};
 
-            if (substr($path_prefix_slash, 0, length($path)) eq $path) {
+            if (substr($path, 0, length($path_prefix_slash)) eq
+                $path_prefix_slash)
+            {
                 # Found a matching path
                 $path_settings = {
                     # Top-level settings
-                    save => $settings->{save},
+                    layout => $settings->{layout},
                     recursive => $settings->{recursive},
+                    save => $settings->{save},
                     # Path-specific settings (may override top-level ones)
                     %{$paths->{$path_prefix} || {}}
                 };
+                last;
             }
         }
 
@@ -152,7 +157,8 @@ hook on_reset_state => sub {
         }
 
         # TODO: Add support for path-specific layouts
-        return (engine 'template')->apply_layout($content);
+        return (engine 'template')->apply_layout($content, {},
+            { layout => $path_settings->{layout} });
     };
 
     $handler_defined = 1;
@@ -174,7 +180,7 @@ Dancer::Plugin::Preprocess::Markdown - Generate HTML content from Markdown files
 
 =head1 VERSION
 
-version 0.010
+version 0.020
 
 =head1 SYNOPSIS
 
@@ -197,6 +203,7 @@ Configure its settings in the YAML configuration file:
           "/articles":
             src_dir: "articles/markdown"
             dest_dir: "articles/html"
+            layout: "article"
 
 =head1 DESCRIPTION
 
@@ -213,6 +220,10 @@ saved and re-used with subsequent requests for the same URL.
 The available configuration settings are described below.
 
 =head2 Top-level settings
+
+=head3 layout
+
+The layout used to display the generated HTML content.
 
 =head3 paths
 
