@@ -5,7 +5,7 @@ use warnings;
 
 # ABSTRACT: Generate HTML content from Markdown files
 
-our $VERSION = '0.020'; # VERSION
+our $VERSION = '0.021'; # VERSION
 
 use Cwd 'abs_path';
 use Dancer ':syntax';
@@ -27,9 +27,10 @@ if (exists $settings->{paths}) {
 }
 
 my $paths_re = join '|', map {
-    s{^[^/]}{/$0};      # Add leading slash, if missing
-    s{/$}{};            # Remove trailing slash
-    quotemeta;
+    my $s = $_;
+    $s =~ s{^[^/]}{/$&};    # Add leading slash, if missing
+    $s =~ s{/$}{};          # Remove trailing slash
+    quotemeta $s;
 } reverse sort keys %$paths;
 
 sub _process_markdown_file {
@@ -135,24 +136,31 @@ hook on_reset_state => sub {
                 # not exist)
                 $content = _process_markdown_file($src_file);
 
-                open(my $f, '>', $dest_file);
-                # TODO: Error handling
-                print {$f} $content;
-                close($f);
+                if (open(my $f, '>', $dest_file)) {
+                    print {$f} $content;
+                    close($f);
+                }
+                else {
+                    warning __PACKAGE__ .
+                        ": Can't open '$dest_file' for writing";
+                }
             }
             else {
                 # The HTML file already exists -- read its contents back to the
                 # client
-                open (my $f, '<', $dest_file);
-                # TODO: Error handling
-                {
+                if (open (my $f, '<', $dest_file)) {
                     local $/;
                     $content = <$f>;
+                    close($f);
                 }
-                close($f);
+                else {
+                    warning __PACKAGE__ .
+                        ": Can't open '$dest_file' for reading";
+                }
             }
         }
-        else {
+
+        if (!defined $content) {
             $content = _process_markdown_file($src_file); 
         }
 
@@ -172,7 +180,7 @@ __END__
 
 =pod
 
-=encoding utf-8
+=encoding UTF-8
 
 =head1 NAME
 
@@ -180,7 +188,7 @@ Dancer::Plugin::Preprocess::Markdown - Generate HTML content from Markdown files
 
 =head1 VERSION
 
-version 0.020
+version 0.021
 
 =head1 SYNOPSIS
 
